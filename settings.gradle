@@ -9,3 +9,4 @@ include ':app'
 //        substitute module('com.github.TeamNewPipe:NewPipeExtractor') using project(':extractor')
 //    }
 //}
+include ':wireframe'
