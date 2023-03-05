@@ -1,18 +1,27 @@
 package com.example.wireframe
 
+import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.Dialog
 import android.graphics.*
-import android.graphics.drawable.BitmapDrawable
-import android.graphics.drawable.ColorDrawable
-import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.*
+import android.os.Build
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewParent
+import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.annotation.RequiresApi
 import androidx.core.view.children
+import androidx.core.view.isVisible
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentActivity
 import androidx.palette.graphics.Palette
+import androidx.viewpager.widget.ViewPager
 import com.google.android.material.shape.MaterialShapeDrawable
+
 
 object Wireframe {
     private const val TAG = "Wireframe"
@@ -25,18 +34,45 @@ object Wireframe {
      * @return the rendered wireframe as a [Bitmap]
      */
     fun renderWireframe(activity: Activity): Bitmap? {
-        if (activity.isDestroyed || activity.isFinishing || !activity.hasWindowFocus()) {
+        val startTime: Long = System.currentTimeMillis()
+
+        if (activity.isDestroyed || activity.isFinishing) { //  !activity.hasWindowFocus() TODO
             Log.e(TAG, "Activity not loaded")
             return null
         }
 
+        val rootViews: List<ViewParent> = getViewRoots()
+
+        for (view in rootViews) {
+            renderWireframeForRootView(view as View)
+        }
+
         val rootView = activity.window.decorView.rootView
+
         val bitmap = Bitmap.createBitmap(rootView.width, rootView.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
         try {
             rootView.background?.draw(canvas) ?: canvas.drawColor(Color.WHITE)
             drawWireframeRectangles(rootView, canvas)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error rendering wireframe", e)
+            return null
+        }
+
+        val time: Long = System.currentTimeMillis() - startTime
+        Log.e("TIMERS", "Wireframe rendering duration ms: - $time")
+
+        return bitmap
+    }
+
+    private fun renderWireframeForRootView(view: View): Bitmap? {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        try {
+            view.background?.draw(canvas) ?: canvas.drawColor(Color.WHITE)
+            drawWireframeRectangles(view, canvas)
         } catch (e: Exception) {
             Log.e(TAG, "Error rendering wireframe", e)
             return null
@@ -53,16 +89,25 @@ object Wireframe {
      */
     private fun drawWireframeRectangles(view: View, canvas: Canvas) {
         try {
-            if (view.visibility != View.VISIBLE) {
+            if (!view.isVisible || view.alpha == 0.0f || !view.isAttachedToWindow) { // || !view.isShown || !view.hasWindowFocus() TODO
                 return
             }
-
             val rect = Rect()
-            view.getGlobalVisibleRect(rect)
-
+            val isVisible = view.getGlobalVisibleRect(rect)
+            if (!isVisible || rect.isEmpty) {
+                return
+            }
+            // 2131362503 app:id/pager
+            // 2131362849 app:id/view_pager
             when (view) {
                 is TextView -> drawTextViewWireframe(canvas, view, rect)
                 is ImageView -> drawImageViewWireframe(canvas, view, rect)
+                is ViewPager -> {
+//                    if (view.id != 2131362503) {
+                    drawViewPagerWireframe(canvas, view)
+
+                    return
+                }
                 else -> drawViewWireframe(canvas, view, rect)
             }
 
@@ -130,6 +175,13 @@ object Wireframe {
             this.color = color
         }
         canvas.drawRect(rect, paint)
+    }
+
+    private fun drawViewPagerWireframe(canvas: Canvas, viewPager: ViewPager) {
+        val currentItem = viewPager.currentItem
+        val currentView = viewPager.getChildAt(currentItem)
+
+        drawWireframeRectangles(currentView, canvas)
     }
 
     /**
@@ -221,24 +273,64 @@ object Wireframe {
     private fun getViewColor(view: View): Int {
         return when (val background = view.background) {
             is ColorDrawable -> background.color
-            // TODO requires API 24
-//            is GradientDrawable -> {
-//                val colors = background.colors
-//                colors?.getOrNull(0) ?: Color.WHITE
-//            }
-            is MaterialShapeDrawable -> background.fillColor?.defaultColor ?: Color.WHITE
+            is GradientDrawable -> { // TODO API <24
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    val colors = background.colors
+                    colors?.getOrNull(0) ?: Color.DKGRAY
+                } else {
+                    getViewColorUsingBitmap(view)
+                }
+            }
+            is MaterialShapeDrawable -> background.fillColor?.defaultColor ?: Color.DKGRAY
             is RippleDrawable -> {
-                val drawable = background.getDrawable(0)
+                val drawable = background.getDrawable(0) // out of bounds excepltion
                 if (drawable is ColorDrawable) {
                     drawable.color
                 } else {
-                    Color.WHITE
+                    Color.DKGRAY
                 }
             }
             else -> {
                 Log.i(TAG, "getViewColor: unsupported background type: ${background?.javaClass?.name}")
-                Color.WHITE
+                getViewColorUsingBitmap(view)
             }
         }
     }
+
+    private fun getViewColorUsingBitmap(view: View): Int {
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        view.draw(canvas)
+
+        return getBitmapDominantColor(bitmap)
+    }
+
+
+    private fun getViewRoots(): List<ViewParent> {
+        val viewRoots = ArrayList<ViewParent>()
+
+        try {
+            val windowManager = Class.forName("android.view.WindowManagerGlobal")
+                .getMethod("getInstance").invoke(null)
+
+            val rootsField = windowManager.javaClass.getDeclaredField("mRoots")
+            rootsField.isAccessible = true
+
+            val stoppedField = Class.forName("android.view.ViewRootImpl")
+                .getDeclaredField("mStopped")
+            stoppedField.isAccessible = true
+
+            val viewParents = rootsField.get(windowManager) as List<ViewParent>
+            for (viewParent in viewParents) {
+                val stopped = stoppedField.get(viewParent) as Boolean
+                if (!stopped) {
+                    viewRoots.add(viewParent)
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return viewRoots
+    }
+
 }
