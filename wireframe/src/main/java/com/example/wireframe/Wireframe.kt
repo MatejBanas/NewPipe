@@ -1,23 +1,16 @@
 package com.example.wireframe
 
-import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.Dialog
 import android.graphics.*
 import android.graphics.drawable.*
 import android.os.Build
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewParent
-import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.annotation.RequiresApi
 import androidx.core.view.children
 import androidx.core.view.isVisible
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentActivity
 import androidx.palette.graphics.Palette
 import androidx.viewpager.widget.ViewPager
 import com.google.android.material.shape.MaterialShapeDrawable
@@ -36,16 +29,12 @@ object Wireframe {
     fun renderWireframe(activity: Activity): Bitmap? {
         val startTime: Long = System.currentTimeMillis()
 
-        if (activity.isDestroyed || activity.isFinishing) { //  !activity.hasWindowFocus() TODO
+        if (activity.isDestroyed || activity.isFinishing) {
             Log.e(TAG, "Activity not loaded")
             return null
         }
 
-        val rootViews: List<ViewParent> = getViewRoots()
-
-        for (view in rootViews) {
-            renderWireframeForRootView(view as View)
-        }
+        val rootViews: List<View> = getViewRoots()
 
         val rootView = activity.window.decorView.rootView
 
@@ -55,6 +44,11 @@ object Wireframe {
         try {
             rootView.background?.draw(canvas) ?: canvas.drawColor(Color.WHITE)
             drawWireframeRectangles(rootView, canvas)
+            for (view in rootViews) {
+                if (view != activity.window.decorView) {
+                    drawWireframeRectangles(view, canvas)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error rendering wireframe", e)
             return null
@@ -66,20 +60,6 @@ object Wireframe {
         return bitmap
     }
 
-    private fun renderWireframeForRootView(view: View): Bitmap? {
-        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bitmap)
-
-        try {
-            view.background?.draw(canvas) ?: canvas.drawColor(Color.WHITE)
-            drawWireframeRectangles(view, canvas)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error rendering wireframe", e)
-            return null
-        }
-
-        return bitmap
-    }
 
     /**
      * Draws a wireframe rectangle on the provided canvas for the given view.
@@ -92,11 +72,19 @@ object Wireframe {
             if (!view.isVisible || view.alpha == 0.0f || !view.isAttachedToWindow) { // || !view.isShown || !view.hasWindowFocus() TODO
                 return
             }
-            val rect = Rect()
-            val isVisible = view.getGlobalVisibleRect(rect)
-            if (!isVisible || rect.isEmpty) {
-                return
-            }
+//            val rect = Rect()
+//            val isVisible = view.getGlobalVisibleRect(rect)
+//            if (!isVisible || rect.isEmpty) {
+//                return
+//            }
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val left = location[0]
+            val top = location[1]
+            val right = left + view.width
+            val bottom = top + view.height
+            val rect = Rect(left, top, right, bottom)
+
             // 2131362503 app:id/pager
             // 2131362849 app:id/view_pager
             when (view) {
@@ -208,61 +196,31 @@ object Wireframe {
      */
     private fun getImageViewColor(view: ImageView): Int {
         try {
-            val bitmap = (view.drawable as? BitmapDrawable)?.bitmap
-
-            if (bitmap == null) {
-                // TODO get color of view.drawable is VectorDrawable
-                Log.i(TAG, "ImageView does not have a bitmap drawable.")
-                return Color.GREEN
+            return when (val drawable = view.drawable) {
+                is VectorDrawable -> {
+                    Color.GREEN
+                }
+                is BitmapDrawable -> {
+                    val bitmap = drawable.bitmap
+                    getBitmapDominantColor(bitmap)
+                }
+                else -> {
+                    Color.GREEN
+                }
             }
-
-            val palette = Palette.from(bitmap).generate()
-
-            return palette.getDominantColor(Color.GREEN)
         } catch (e: Exception) {
             Log.e(TAG, "An error occurred while getting the dominant color.", e)
             return Color.GREEN
         }
     }
 
-    /**
-     * Calculates the average color of a bitmap and returns it as an RGB integer.
-     * If the bitmap is empty or null, it returns Color.BLACK.
-     * @param bitmap the bitmap to calculate the average color for
-     * @return the average color of the bitmap as an RGB integer
-     */
-    fun getAverageColorRGB(bitmap: Bitmap?): Int {
-        if (bitmap == null || bitmap.width == 0 || bitmap.height == 0) {
-            Log.i(TAG, "Bitmap is null or empty")
-            return Color.BLACK
-        }
 
-        val pixelList = mutableListOf<Int>()
-        for (x in 0 until bitmap.width) {
-            for (y in 0 until bitmap.height) {
-                val pixelColor = bitmap.getPixel(x, y)
-                if (pixelColor != 0) {
-                    pixelList.add(pixelColor)
-                }
-            }
-        }
+    private fun getBitmapDominantColor(bitmap: Bitmap): Int {
+        val palette = Palette.from(bitmap).generate()
 
-        if (pixelList.isEmpty()) {
-            Log.i(TAG, "Bitmap has no non-zero pixels")
-            return Color.BLACK
-        }
-
-        val redSum = pixelList.map { Color.red(it) }.sum()
-        val greenSum = pixelList.map { Color.green(it) }.sum()
-        val blueSum = pixelList.map { Color.blue(it) }.sum()
-        val size = pixelList.size
-
-        val redAvg = redSum / size
-        val greenAvg = greenSum / size
-        val blueAvg = blueSum / size
-
-        return Color.rgb(redAvg, greenAvg, blueAvg)
+        return palette.getDominantColor(Color.GREEN)
     }
+
 
     /**
      * Returns the color of the given view's background.
@@ -273,7 +231,7 @@ object Wireframe {
     private fun getViewColor(view: View): Int {
         return when (val background = view.background) {
             is ColorDrawable -> background.color
-            is GradientDrawable -> { // TODO API <24
+            is GradientDrawable -> {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     val colors = background.colors
                     colors?.getOrNull(0) ?: Color.DKGRAY
@@ -306,31 +264,27 @@ object Wireframe {
     }
 
 
-    private fun getViewRoots(): List<ViewParent> {
-        val viewRoots = ArrayList<ViewParent>()
+    private fun getViewRoots(): List<View> {
+        val views = ArrayList<View>()
 
         try {
             val windowManager = Class.forName("android.view.WindowManagerGlobal")
                 .getMethod("getInstance").invoke(null)
 
-            val rootsField = windowManager.javaClass.getDeclaredField("mRoots")
-            rootsField.isAccessible = true
+            val viewsField = windowManager.javaClass.getDeclaredField("mViews")
+            viewsField.isAccessible = true
 
-            val stoppedField = Class.forName("android.view.ViewRootImpl")
-                .getDeclaredField("mStopped")
-            stoppedField.isAccessible = true
-
-            val viewParents = rootsField.get(windowManager) as List<ViewParent>
-            for (viewParent in viewParents) {
-                val stopped = stoppedField.get(viewParent) as Boolean
-                if (!stopped) {
-                    viewRoots.add(viewParent)
+            val viewsFieldList = viewsField.get(windowManager) as ArrayList<View>
+            for (view in viewsFieldList) {
+                // TODO only visible views?
+                if (view.isVisible) {
+                    views.add(view)
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        return viewRoots
+        return views
     }
 
 }
