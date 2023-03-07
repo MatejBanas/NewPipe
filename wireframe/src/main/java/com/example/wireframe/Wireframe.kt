@@ -27,7 +27,7 @@ object Wireframe {
      * @return the rendered wireframe as a [Bitmap]
      */
     fun renderWireframe(activity: Activity): Bitmap? {
-        val startTime: Long = System.currentTimeMillis()
+//        val startTime: Long = System.currentTimeMillis()
 
         if (activity.isDestroyed || activity.isFinishing) {
             Log.e(TAG, "Activity not loaded")
@@ -54,8 +54,8 @@ object Wireframe {
             return null
         }
 
-        val time: Long = System.currentTimeMillis() - startTime
-        Log.e("TIMERS", "Wireframe rendering duration ms: - $time")
+//        val time: Long = System.currentTimeMillis() - startTime
+//        Log.e(TAG, "Wireframe rendering duration ms: - $time")
 
         return bitmap
     }
@@ -69,14 +69,10 @@ object Wireframe {
      */
     private fun drawWireframeRectangles(view: View, canvas: Canvas) {
         try {
-            if (!view.isVisible || view.alpha == 0.0f || !view.isAttachedToWindow) { // || !view.isShown || !view.hasWindowFocus() TODO
+            if (!view.isVisible || view.alpha == 0.0f || !view.isAttachedToWindow) {
                 return
             }
-//            val rect = Rect()
-//            val isVisible = view.getGlobalVisibleRect(rect)
-//            if (!isVisible || rect.isEmpty) {
-//                return
-//            }
+
             val location = IntArray(2)
             view.getLocationOnScreen(location)
             val left = location[0]
@@ -85,15 +81,11 @@ object Wireframe {
             val bottom = top + view.height
             val rect = Rect(left, top, right, bottom)
 
-            // 2131362503 app:id/pager
-            // 2131362849 app:id/view_pager
             when (view) {
                 is TextView -> drawTextViewWireframe(canvas, view, rect)
                 is ImageView -> drawImageViewWireframe(canvas, view, rect)
                 is ViewPager -> {
-//                    if (view.id != 2131362503) {
                     drawViewPagerWireframe(canvas, view)
-
                     return
                 }
                 else -> drawViewWireframe(canvas, view, rect)
@@ -165,6 +157,12 @@ object Wireframe {
         canvas.drawRect(rect, paint)
     }
 
+    /**
+     * Draws wireframe rectangles on the given [canvas] for the [currentItem] of the [viewPager].
+     *
+     * @param canvas the canvas on which the wireframe rectangles are drawn.
+     * @param viewPager the view pager for which the wireframe rectangles are drawn.
+     */
     private fun drawViewPagerWireframe(canvas: Canvas, viewPager: ViewPager) {
         val currentItem = viewPager.currentItem
         val currentView = viewPager.getChildAt(currentItem)
@@ -214,11 +212,16 @@ object Wireframe {
         }
     }
 
-
+    /**
+     * Calculates the dominant color of the given [bitmap] using the Palette library.
+     *
+     * @param bitmap the bitmap for which the dominant color is calculated
+     * @return the dominant color of the bitmap, or the default color [Color.GRAY] if the palette is unable to generate colors.
+     */
     private fun getBitmapDominantColor(bitmap: Bitmap): Int {
         val palette = Palette.from(bitmap).generate()
 
-        return palette.getDominantColor(Color.GREEN)
+        return palette.getDominantColor(Color.GRAY)
     }
 
 
@@ -226,7 +229,7 @@ object Wireframe {
      * Returns the color of the given view's background.
      *
      * @param view the view to get the color from
-     * @return the background color of the view, or white if the view has no background color
+     * @return the background color of the view, or dark gray if the view has no background color
      */
     private fun getViewColor(view: View): Int {
         return when (val background = view.background) {
@@ -241,7 +244,7 @@ object Wireframe {
             }
             is MaterialShapeDrawable -> background.fillColor?.defaultColor ?: Color.DKGRAY
             is RippleDrawable -> {
-                val drawable = background.getDrawable(0) // out of bounds excepltion
+                val drawable = background.getDrawable(0)
                 if (drawable is ColorDrawable) {
                     drawable.color
                 } else {
@@ -255,6 +258,13 @@ object Wireframe {
         }
     }
 
+    /**
+     * Calculates the dominant color of the given [view] by creating a bitmap of the view
+     * and using the Palette library to calculate the dominant color.
+     *
+     * @param view the view for which the dominant color is calculated.
+     * @return the dominant color of the view, or the default color [Color.GRAY]
+     */
     private fun getViewColorUsingBitmap(view: View): Int {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -263,7 +273,11 @@ object Wireframe {
         return getBitmapDominantColor(bitmap)
     }
 
-
+    /**
+     * Retrieves the list of currently visible root views.
+     *
+     * @return a list of currently visible root views.
+     */
     private fun getViewRoots(): List<View> {
         val views = ArrayList<View>()
 
@@ -276,7 +290,6 @@ object Wireframe {
 
             val viewsFieldList = viewsField.get(windowManager) as ArrayList<View>
             for (view in viewsFieldList) {
-                // TODO only visible views?
                 if (view.isVisible) {
                     views.add(view)
                 }
@@ -286,5 +299,4 @@ object Wireframe {
         }
         return views
     }
-
 }
